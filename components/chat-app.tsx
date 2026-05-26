@@ -311,13 +311,13 @@ export function ChatApp() {
       <header className="border-b border-[var(--wf-line)] bg-white">
         <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-5 py-3">
           <div className="flex items-center gap-4">
-            <div className="relative h-10 w-[140px] shrink-0">
+            <div className="relative h-8 w-[110px] shrink-0 sm:h-9 sm:w-[125px]">
               <Image
                 src="/wayfair-logo.png"
                 alt="Wayfair"
                 fill
                 className="object-contain object-left"
-                sizes="140px"
+                sizes="(min-width: 640px) 125px, 110px"
                 priority
               />
             </div>
