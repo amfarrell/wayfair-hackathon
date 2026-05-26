@@ -309,14 +309,21 @@ export function ChatApp() {
 
       {/* Main header */}
       <header className="border-b border-[var(--wf-line)] bg-white">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <span className="font-display text-3xl font-bold leading-none tracking-tight text-[var(--wf-purple)]">
-              wayfair
-            </span>
-            <span className="h-6 w-px bg-[var(--wf-line)]" />
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-5 py-3">
+          <div className="flex items-center gap-4">
+            <div className="relative h-10 w-[140px] shrink-0">
+              <Image
+                src="/wayfair-logo.png"
+                alt="Wayfair"
+                fill
+                className="object-contain object-left"
+                sizes="140px"
+                priority
+              />
+            </div>
+            <span className="h-7 w-px bg-[var(--wf-line)]" />
             <div>
-              <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-[var(--wf-purple-deep)]">
+              <div className="text-[13px] font-semibold text-[var(--wf-ink)]">
                 Delivery Updates
               </div>
               <div className="text-[12px] text-[var(--wf-ink-soft)]">
@@ -328,7 +335,7 @@ export function ChatApp() {
             <button
               type="button"
               onClick={reset}
-              className="rounded-full border border-[var(--wf-line)] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--wf-ink-soft)] transition hover:text-[var(--wf-purple)]"
+              className="rounded-lg border border-[var(--wf-line)] bg-white px-3 py-1.5 text-[12px] font-semibold text-[var(--wf-ink-soft)] transition hover:border-[var(--wf-purple)] hover:text-[var(--wf-purple)]"
             >
               Reset
             </button>
@@ -356,7 +363,7 @@ export function ChatApp() {
             <button
               type="button"
               onClick={startConversation}
-              className="mt-7 inline-flex items-center gap-2 rounded-full bg-[var(--wf-purple)] px-7 py-3.5 text-[14px] font-bold text-white shadow-[0_8px_24px_-8px_rgba(127,24,126,0.55)] transition hover:bg-[var(--wf-purple-deep)] active:scale-[0.98]"
+              className="mt-7 inline-flex items-center gap-2 rounded-lg bg-[var(--wf-purple)] px-6 py-3 text-[15px] font-semibold text-white shadow-[0_6px_20px_-6px_rgba(123,24,159,0.5)] transition hover:bg-[var(--wf-purple-deep)] active:scale-[0.98]"
             >
               Run overnight delivery check
               <span aria-hidden>→</span>

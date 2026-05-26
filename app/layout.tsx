@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { Fraunces, Manrope } from "next/font/google";
+import { Fraunces, Sofia_Sans } from "next/font/google";
 import "./globals.css";
 
-const manrope = Manrope({
-  variable: "--font-manrope",
+// Sofia Sans is the closest free Google Fonts analog to Wayfair's licensed Sofia Pro.
+const sofia = Sofia_Sans({
+  variable: "--font-sofia",
   subsets: ["latin"],
   weight: ["300", "400", "500", "600", "700", "800"],
 });
@@ -27,7 +28,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${manrope.variable} ${fraunces.variable} h-full antialiased`}
+      className={`${sofia.variable} ${fraunces.variable} h-full antialiased`}
       style={{ colorScheme: "light" }}
     >
       <body className="flex min-h-full flex-col">{children}</body>

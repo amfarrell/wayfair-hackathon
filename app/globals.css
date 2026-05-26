@@ -1,19 +1,21 @@
 @import "tailwindcss";
 
 :root {
-  --wf-purple: #7f187e;
-  --wf-purple-deep: #582c83;
-  --wf-purple-soft: #f4ebf8;
+  /* Real Wayfair tokens (extracted from wayfair.com via DevTools) */
+  --wf-purple: #7b189f;         /* primary brand purple */
+  --wf-purple-deep: #54117a;    /* darker variant for top utility strip */
+  --wf-purple-soft: #f4ebf8;    /* tinted backgrounds */
+  --wf-ink: #211e22;            /* body text */
+  --wf-ink-soft: #5d575f;       /* secondary text */
+  /* Our additions for the delivery surface */
   --wf-cream: #faf7f2;
   --wf-cream-deeper: #f1ece4;
-  --wf-coral: #e8704c;
-  --wf-ink: #1f1422;
-  --wf-ink-soft: #5a4c5e;
+  --wf-coral: #e8704c;          /* reschedule-confirmed accent */
   --wf-line: #e8dfd4;
 }
 
 @theme {
-  --font-sans: var(--font-manrope);
+  --font-sans: var(--font-sofia);
   --font-serif: var(--font-fraunces);
 }
 
@@ -21,8 +23,7 @@ html,
 body {
   background: var(--wf-cream);
   color: var(--wf-ink);
-  font-family: var(--font-manrope), ui-sans-serif, system-ui, sans-serif;
-  font-feature-settings: "ss01", "cv11";
+  font-family: var(--font-sofia), sofia, ui-sans-serif, system-ui, sans-serif;
 }
 
 .font-display {
