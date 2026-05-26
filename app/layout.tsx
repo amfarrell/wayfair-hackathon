@@ -13,9 +13,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Hackathon Starter — Subconscious Agents",
-  description:
-    "Chat and long-running agents powered by Subconscious, Vercel AI SDK, Baseten, and Cloudflare.",
+  title: "Wayfair Delivery Updates",
+  description: "Your delivery coordinator, in your pocket.",
 };
 
 export default function RootLayout({
@@ -27,9 +26,9 @@ export default function RootLayout({
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-      style={{ colorScheme: "dark" }}
+      style={{ colorScheme: "light" }}
     >
-      <body className="flex min-h-full flex-col bg-black text-white">
+      <body className="flex min-h-full flex-col bg-white text-zinc-900">
         {children}
       </body>
     </html>

@@ -1,110 +1,152 @@
 import { tool } from "ai";
 import { z } from "zod";
 
-/**
- * Example tools for the hackathon starter.
- *
- * Add your own tools here — connect APIs, databases, Cloudflare Workers,
- * Baseten endpoints, or wrap MCP server tools (see lib/tools/mcp-tools.ts).
- */
-export const getWeather = tool({
-  description: "Get the current weather for a city",
-  inputSchema: z.object({
-    city: z.string().describe("City name, e.g. Boston"),
-    units: z
-      .enum(["fahrenheit", "celsius"])
-      .optional()
-      .describe("Temperature units"),
-  }),
-  execute: async ({ city, units = "fahrenheit" }) => {
-    const tempF = 55 + Math.floor(Math.random() * 30);
-    const tempC = Math.round(((tempF - 32) * 5) / 9);
-    return {
-      city,
-      condition: ["sunny", "cloudy", "rainy", "windy"][
-        Math.floor(Math.random() * 4)
-      ],
-      temperature: units === "celsius" ? tempC : tempF,
-      units,
-      source: "demo-tool",
-    };
-  },
-});
-
-export const calculate = tool({
-  description: "Evaluate a basic math expression (numbers and + - * / parentheses)",
-  inputSchema: z.object({
-    expression: z
-      .string()
-      .describe("Math expression, e.g. (17 * 23) + 4"),
-  }),
-  execute: async ({ expression }) => {
-    const sanitized = expression.replace(/[^0-9+\-*/().\s]/g, "");
-    if (!sanitized.trim()) {
-      return { error: "Invalid expression" };
-    }
-    const result = Function(`"use strict"; return (${sanitized})`)();
-    return { expression, result };
-  },
-});
-
-export const webSearch = tool({
-  description:
-    "Search the web for information. Replace this stub with Tavily, SerpAPI, or your own search API.",
-  inputSchema: z.object({
-    query: z.string().describe("Search query"),
-    maxResults: z.number().min(1).max(10).optional(),
-  }),
-  execute: async ({ query, maxResults = 3 }) => {
-    await new Promise((resolve) => setTimeout(resolve, 800));
-    return {
-      query,
-      results: Array.from({ length: maxResults }, (_, i) => ({
-        title: `Result ${i + 1} for "${query}"`,
-        url: `https://example.com/search?q=${encodeURIComponent(query)}&r=${i + 1}`,
-        snippet:
-          "Replace lib/tools/index.ts webSearch with a real API call during the hackathon.",
-      })),
-      note: "Stub — wire up a real search provider to go further.",
-    };
-  },
-});
-
-export const runLongTask = tool({
-  description:
-    "Run a multi-step background task. Use for demos of long-running agent work.",
-  inputSchema: z.object({
-    taskName: z.string().describe("Short label for the task"),
-    steps: z
-      .number()
-      .min(1)
-      .max(8)
-      .optional()
-      .describe("Number of simulated steps"),
-  }),
-  execute: async ({ taskName, steps = 4 }) => {
-    const log: string[] = [];
-    for (let i = 1; i <= steps; i++) {
-      await new Promise((resolve) => setTimeout(resolve, 600));
-      log.push(`Step ${i}/${steps}: processed "${taskName}"`);
-    }
-    return {
-      taskName,
-      status: "complete",
-      stepsCompleted: steps,
-      log,
-    };
-  },
-});
-
-export const chatTools = {
-  getWeather,
-  calculate,
+type DeliverySlot = {
+  date: string;
+  window: string;
+  forecast: string;
 };
 
-export const agentTools = {
-  getWeather,
-  calculate,
-  webSearch,
-  runLongTask,
+type Order = {
+  orderId: string;
+  customerName: string;
+  customerPhone: string;
+  address: string;
+  item: string;
+  sku: string;
+  deliveryType: "white-glove" | "doorstep" | "curbside";
+  scheduledDate: string;
+  scheduledWindow: string;
+  status: "scheduled" | "rescheduled" | "delivered";
+};
+
+const ANDREWS_ORDER: Order = {
+  orderId: "WF-2407",
+  customerName: "Andrew",
+  customerPhone: "(617) 555-0142",
+  address: "42 Beacon St, Boston, MA 02108",
+  item: "Birch Lane Heritage Velvet Sectional Sofa (Dusty Rose)",
+  sku: "WF-1003",
+  deliveryType: "white-glove",
+  scheduledDate: "Wednesday, May 27, 2026",
+  scheduledWindow: "10:00 AM – 12:00 PM",
+  status: "scheduled",
+};
+
+const MEATBALL_FORECAST = {
+  date: "Wednesday, May 27, 2026",
+  location: "Boston, MA",
+  condition: "Torrential meatballs",
+  severity: "severe",
+  timing: "9:00 AM – 3:00 PM",
+  details:
+    "Heavy meatball precipitation expected throughout the morning. " +
+    "Meatballs measuring 2–4 inches in diameter, accompanied by light marinara mist. " +
+    "NWS advisory: unprotected outdoor items at high risk of staining, soaking, and meat-based fiber damage.",
+  alertIssuedAt: "2026-05-26T22:00:00Z",
+};
+
+const ALTERNATE_SLOTS: DeliverySlot[] = [
+  { date: "Thursday, May 28", window: "10:00 AM – 12:00 PM", forecast: "Sunny, 72°F, no precipitation" },
+  { date: "Thursday, May 28", window: "2:00 PM – 4:00 PM", forecast: "Sunny, 75°F, light breeze" },
+  { date: "Friday, May 29", window: "8:00 AM – 10:00 AM", forecast: "Partly cloudy, 68°F" },
+  { date: "Friday, May 29", window: "1:00 PM – 3:00 PM", forecast: "Sunny, 73°F" },
+  { date: "Saturday, May 30", window: "10:00 AM – 12:00 PM", forecast: "Clear, 70°F" },
+  { date: "Saturday, May 30", window: "3:00 PM – 5:00 PM", forecast: "Sunny, 74°F" },
+  { date: "Monday, June 1", window: "9:00 AM – 11:00 AM", forecast: "Mostly sunny, 69°F" },
+  { date: "Monday, June 1", window: "2:00 PM – 4:00 PM", forecast: "Sunny, 71°F" },
+  { date: "Tuesday, June 2", window: "10:00 AM – 12:00 PM", forecast: "Sunny, 72°F" },
+  { date: "Tuesday, June 2", window: "3:00 PM – 5:00 PM", forecast: "Clear, 73°F" },
+];
+
+const orderState: Order = { ...ANDREWS_ORDER };
+
+export const getMyDelivery = tool({
+  description:
+    "Look up the customer's currently scheduled delivery. Returns order ID, item, address, delivery type, scheduled date and window, and current status.",
+  inputSchema: z.object({}),
+  execute: async () => {
+    return { order: orderState };
+  },
+});
+
+export const checkWeatherForDelivery = tool({
+  description:
+    "Check the weather forecast for the customer's scheduled delivery date and location. Returns condition, severity, and risk details. Use this BEFORE talking to the customer so you know what you're dealing with.",
+  inputSchema: z.object({
+    date: z.string().describe("The scheduled delivery date, e.g. 'Wednesday, May 27, 2026'"),
+    location: z.string().describe("The delivery city, e.g. 'Boston, MA'"),
+  }),
+  execute: async ({ date, location }) => {
+    if (date.includes("May 27") || date.includes("2026-05-27")) {
+      return {
+        date,
+        location,
+        forecast: MEATBALL_FORECAST,
+        deliveryRisk:
+          "HIGH — torrential meatballs during the scheduled delivery window. " +
+          "White-glove crews would have to carry an unwrapped velvet sectional through actively falling meatballs. " +
+          "Velvet absorbs marinara stains permanently and the impact weight can compress the foam core. Strongly recommend rescheduling.",
+      };
+    }
+    return {
+      date,
+      location,
+      forecast: { condition: "Clear", severity: "none" },
+      deliveryRisk: "LOW — proceed as scheduled.",
+    };
+  },
+});
+
+export const findClearDeliverySlots = tool({
+  description:
+    "Find alternate delivery slots where the weather forecast is clear. Returns up to `count` slots. Pass `excluding` with the date+window strings of slots you've already offered to fetch fresh options the customer hasn't seen.",
+  inputSchema: z.object({
+    count: z.number().min(1).max(5).default(3).describe("How many slots to return"),
+    excluding: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Array of slot identifiers (formatted '<date> @ <window>') the customer has already seen and doesn't want. Used to fetch a fresh batch.",
+      ),
+  }),
+  execute: async ({ count, excluding }) => {
+    const seen = new Set(excluding ?? []);
+    const fresh = ALTERNATE_SLOTS.filter(
+      (s) => !seen.has(`${s.date} @ ${s.window}`),
+    ).slice(0, count);
+    return {
+      slots: fresh,
+      remainingInPool: ALTERNATE_SLOTS.length - seen.size - fresh.length,
+    };
+  },
+});
+
+export const confirmReschedule = tool({
+  description:
+    "Confirm the customer's chosen new delivery slot and update dispatch. Call this ONLY after the customer has explicitly chosen one of the offered slots.",
+  inputSchema: z.object({
+    newDate: z.string().describe("The chosen date, e.g. 'Thursday, May 28'"),
+    newWindow: z.string().describe("The chosen window, e.g. '2:00 PM – 4:00 PM'"),
+  }),
+  execute: async ({ newDate, newWindow }) => {
+    orderState.scheduledDate = newDate;
+    orderState.scheduledWindow = newWindow;
+    orderState.status = "rescheduled";
+    return {
+      success: true,
+      confirmationNumber: `RSC-${Math.floor(Math.random() * 90000 + 10000)}`,
+      order: orderState,
+      dispatchUpdated: true,
+      driverNotified: true,
+      message: "Dispatch has been updated. The crew has been notified. No reschedule fee.",
+    };
+  },
+});
+
+export const deliveryTools = {
+  getMyDelivery,
+  checkWeatherForDelivery,
+  findClearDeliverySlots,
+  confirmReschedule,
 };
