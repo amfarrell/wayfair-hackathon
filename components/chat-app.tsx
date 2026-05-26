@@ -2,70 +2,252 @@
 
 import { useChat } from "@ai-sdk/react";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { useMemo, useState } from "react";
-
-const WF_PURPLE = "#7F187E";
-const WF_PURPLE_DARK = "#582C83";
-const WF_PURPLE_LIGHT = "#F4EBF8";
+import Image from "next/image";
+import { useEffect, useMemo, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const DISPATCH_TRIGGER =
   "[DISPATCH] Severe weather alert just came in for tomorrow morning. " +
   "Check Andrew's scheduled delivery and reach out to him proactively if there's a risk to his order.";
 
-function MessagePart({
-  part,
-  role,
-}: {
-  part: UIMessage["parts"][number];
-  role: "user" | "assistant" | "system";
-}) {
-  if (part.type === "text") {
-    return (
-      <p
-        className={`whitespace-pre-wrap text-[15px] leading-relaxed ${
-          role === "user" ? "text-white" : "text-zinc-900"
-        }`}
-      >
-        {part.text}
-      </p>
-    );
-  }
+const INITIAL_ORDER = {
+  orderId: "WF-2407",
+  item: "Birch Lane Heritage Velvet Sectional",
+  scheduledDate: "Wed, May 27",
+  scheduledWindow: "10:00 AM – 12:00 PM",
+  status: "scheduled" as "scheduled" | "rescheduled",
+};
 
-  if (part.type.startsWith("tool-")) {
-    const label = part.type.replace("tool-", "");
-    const state = "state" in part ? part.state : "unknown";
-    const stateLabel =
-      state === "input-available"
-        ? "Calling…"
-        : state === "output-available"
-          ? "Done"
-          : state === "output-error"
-            ? "Error"
-            : "";
-    return (
-      <div
-        className="mt-2 inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-medium"
-        style={{
-          borderColor: `${WF_PURPLE}33`,
-          backgroundColor: WF_PURPLE_LIGHT,
-          color: WF_PURPLE_DARK,
-        }}
-      >
-        <span
-          className="inline-block h-1.5 w-1.5 rounded-full"
-          style={{ backgroundColor: WF_PURPLE }}
-        />
-        <span className="font-mono">{label}</span>
-        <span className="text-zinc-500">· {stateLabel}</span>
-      </div>
-    );
-  }
+type OrderSnapshot = typeof INITIAL_ORDER;
 
+// ───── helpers ─────
+
+function isDispatchTrigger(msg: UIMessage) {
+  if (msg.role !== "user") return false;
+  const first = msg.parts.find((p) => p.type === "text");
+  return !!first && "text" in first && first.text.startsWith("[DISPATCH]");
+}
+
+function readToolPart(
+  part: UIMessage["parts"][number],
+): { name: string; state: string; output?: unknown } | null {
+  if (!part.type.startsWith("tool-")) return null;
+  const anyPart = part as unknown as {
+    type: string;
+    state?: string;
+    output?: unknown;
+  };
+  return {
+    name: part.type.replace("tool-", ""),
+    state: anyPart.state ?? "unknown",
+    output: anyPart.output,
+  };
+}
+
+function deriveOrder(messages: UIMessage[]): OrderSnapshot {
+  let order: OrderSnapshot = { ...INITIAL_ORDER };
+  for (const msg of messages) {
+    for (const part of msg.parts) {
+      const tool = readToolPart(part);
+      if (
+        tool?.name === "confirmReschedule" &&
+        tool.state === "output-available" &&
+        tool.output &&
+        typeof tool.output === "object" &&
+        "order" in (tool.output as Record<string, unknown>)
+      ) {
+        const o = (tool.output as { order: Record<string, string> }).order;
+        order = {
+          orderId: o.orderId ?? order.orderId,
+          item: order.item,
+          scheduledDate: o.scheduledDate ?? order.scheduledDate,
+          scheduledWindow: o.scheduledWindow ?? order.scheduledWindow,
+          status: o.status === "rescheduled" ? "rescheduled" : order.status,
+        };
+      }
+    }
+  }
+  return order;
+}
+
+const TOOL_LABEL: Record<string, string> = {
+  getMyDelivery: "Reading delivery",
+  checkWeatherForDelivery: "Checking forecast",
+  findClearDeliverySlots: "Finding clear days",
+  confirmReschedule: "Updating dispatch",
+};
+const prettyTool = (n: string) => TOOL_LABEL[n] ?? n;
+
+function deriveActiveTool(messages: UIMessage[]): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const msg = messages[i];
+    if (msg.role !== "assistant") continue;
+    for (let j = msg.parts.length - 1; j >= 0; j--) {
+      const tool = readToolPart(msg.parts[j]);
+      if (tool?.state === "input-available") return prettyTool(tool.name);
+    }
+  }
   return null;
 }
 
+// ───── pieces ─────
+
+function Avatar({ who, size = 36 }: { who: "moana" | "andrew"; size?: number }) {
+  const src = who === "moana" ? "/moana.png" : "/andrew.png";
+  return (
+    <div
+      style={{ width: size, height: size }}
+      className="relative shrink-0 overflow-hidden rounded-full ring-2 ring-white shadow-[0_2px_8px_rgba(88,44,131,0.18)]"
+    >
+      <Image src={src} alt={who} fill className="object-cover" sizes={`${size}px`} />
+    </div>
+  );
+}
+
+function ToolPill({ name, state }: { name: string; state: string }) {
+  const isActive = state === "input-available";
+  const isError = state === "output-error";
+  return (
+    <div
+      className={`mt-1 inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium tracking-wide ${
+        isError
+          ? "bg-red-50 text-red-700"
+          : isActive
+            ? "tool-pill-active text-[var(--wf-purple-deep)]"
+            : "bg-[var(--wf-purple-soft)] text-[var(--wf-purple-deep)]"
+      }`}
+    >
+      <span aria-hidden>✦</span>
+      <span className="italic">{prettyTool(name)}</span>
+      {isActive && <span className="opacity-60">…</span>}
+      {isError && <span className="opacity-60">failed</span>}
+    </div>
+  );
+}
+
+function RichText({ text, isUser }: { text: string; isUser: boolean }) {
+  // User messages stay plain (users don't type markdown).
+  if (isUser) {
+    return (
+      <p className="whitespace-pre-wrap text-[15px] leading-[1.55] text-white">
+        {text}
+      </p>
+    );
+  }
+  return (
+    <div
+      className={[
+        "text-[15px] leading-[1.55] text-[var(--wf-ink)]",
+        "[&_p]:my-0 [&_p+p]:mt-2",
+        "[&_strong]:font-semibold [&_strong]:text-[var(--wf-purple-deep)]",
+        "[&_em]:italic",
+        // Unordered list — custom Wayfair-purple dot
+        "[&_ul]:my-1.5 [&_ul]:list-none [&_ul]:space-y-1 [&_ul]:pl-0",
+        "[&_ul>li]:relative [&_ul>li]:pl-5",
+        "[&_ul>li]:before:absolute [&_ul>li]:before:left-1 [&_ul>li]:before:top-[10px] [&_ul>li]:before:h-1.5 [&_ul>li]:before:w-1.5 [&_ul>li]:before:rounded-full [&_ul>li]:before:bg-[var(--wf-purple)] [&_ul>li]:before:content-['']",
+        // Ordered list — keep the numbers, make them prominent
+        "[&_ol]:my-1.5 [&_ol]:list-decimal [&_ol]:space-y-1.5 [&_ol]:pl-7",
+        "[&_ol>li]:pl-1",
+        "[&_ol>li]:marker:font-bold [&_ol>li]:marker:text-[var(--wf-purple)]",
+        "[&_code]:rounded [&_code]:bg-[var(--wf-cream-deeper)] [&_code]:px-1 [&_code]:py-0.5 [&_code]:text-[13px] [&_code]:font-medium",
+        "[&_a]:font-semibold [&_a]:text-[var(--wf-purple)] [&_a]:underline [&_a]:decoration-[var(--wf-purple)]/30 [&_a]:underline-offset-2",
+        "[&_hr]:my-3 [&_hr]:border-[var(--wf-line)]",
+      ].join(" ")}
+    >
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    </div>
+  );
+}
+
+function MessagePart({
+  part,
+  isUser,
+}: {
+  part: UIMessage["parts"][number];
+  isUser: boolean;
+}) {
+  if (part.type === "text") {
+    const text = "text" in part ? part.text : "";
+    return <RichText text={text} isUser={isUser} />;
+  }
+  if (part.type.startsWith("tool-")) {
+    const tool = readToolPart(part);
+    if (!tool) return null;
+    return <ToolPill name={tool.name} state={tool.state} />;
+  }
+  return null;
+}
+
+function DeliveryStatusCard({ order }: { order: OrderSnapshot }) {
+  const isRescheduled = order.status === "rescheduled";
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[var(--wf-line)] bg-white p-3 shadow-[0_1px_2px_rgba(31,20,34,0.04)]">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3.5">
+          <div className="relative h-16 w-20 shrink-0 overflow-hidden rounded-lg bg-[var(--wf-cream-deeper)] ring-1 ring-[var(--wf-line)]">
+            <Image
+              src="/sofa.jpg"
+              alt="Birch Lane Heritage velvet sectional"
+              fill
+              className="object-cover"
+              sizes="80px"
+            />
+          </div>
+          <div>
+            <div className="text-[11px] font-semibold uppercase tracking-[0.12em] text-[var(--wf-ink-soft)]">
+              Order {order.orderId} · White-glove delivery
+            </div>
+            <div className="text-[15px] font-semibold leading-tight text-[var(--wf-ink)]">
+              {order.item}
+            </div>
+            <div className="mt-0.5 text-[12px] text-[var(--wf-ink-soft)]">
+              42 Beacon St, Boston, MA
+            </div>
+          </div>
+        </div>
+
+        <div
+          key={`${order.status}-${order.scheduledDate}-${order.scheduledWindow}`}
+          className={`status-flip flex flex-col items-end gap-0.5 rounded-xl px-3 py-2 text-right ${
+            isRescheduled
+              ? "bg-[rgba(232,112,76,0.12)] text-[var(--wf-coral)]"
+              : "bg-[var(--wf-purple-soft)] text-[var(--wf-purple-deep)]"
+          }`}
+        >
+          <span className="text-[10px] font-bold uppercase tracking-[0.15em]">
+            {isRescheduled ? "Rescheduled ✓" : "Scheduled"}
+          </span>
+          <span className="font-display text-[15px] font-semibold leading-tight">
+            {order.scheduledDate}
+          </span>
+          <span className="text-[11px] font-medium opacity-80">
+            {order.scheduledWindow}
+          </span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+type Group = { role: "user" | "assistant"; messages: UIMessage[] };
+
+function groupMessages(messages: UIMessage[]): Group[] {
+  const groups: Group[] = [];
+  for (const m of messages) {
+    if (m.role !== "user" && m.role !== "assistant") continue;
+    const last = groups[groups.length - 1];
+    if (last && last.role === m.role) last.messages.push(m);
+    else groups.push({ role: m.role as "user" | "assistant", messages: [m] });
+  }
+  return groups;
+}
+
+// ───── main ─────
+
 export function ChatApp() {
   const [input, setInput] = useState("");
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const transport = useMemo(
     () => new DefaultChatTransport({ api: "/api/chat" }),
@@ -77,6 +259,17 @@ export function ChatApp() {
   });
 
   const isBusy = status === "streaming" || status === "submitted";
+  const visibleMessages = messages.filter((m) => !isDispatchTrigger(m));
+  const order = useMemo(() => deriveOrder(messages), [messages]);
+  const activeTool = isBusy ? deriveActiveTool(messages) : null;
+  const hasStarted = messages.length > 0;
+  const groups = useMemo(() => groupMessages(visibleMessages), [visibleMessages]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+  }, [visibleMessages.length, isBusy]);
 
   function startConversation() {
     sendMessage({ parts: [{ type: "text", text: DISPATCH_TRIGGER }] });
@@ -94,55 +287,40 @@ export function ChatApp() {
     setInput("");
   }
 
-  // Hide the initial dispatcher trigger message from the customer's view.
-  const visibleMessages = messages.filter((m) => {
-    if (m.role !== "user") return true;
-    const first = m.parts.find((p) => p.type === "text");
-    if (first && "text" in first && first.text.startsWith("[DISPATCH]")) {
-      return false;
-    }
-    return true;
-  });
-
-  const hasStarted = messages.length > 0;
-
   return (
-    <div className="flex min-h-screen flex-col bg-white">
-      {/* Top utility nav (Wayfair-style brand strip) */}
-      <div
-        className="border-b text-[11px] text-white"
-        style={{ backgroundColor: WF_PURPLE_DARK, borderColor: WF_PURPLE_DARK }}
-      >
-        <div className="mx-auto flex max-w-3xl items-center justify-between px-4 py-1.5">
-          <div className="flex items-center gap-4 font-semibold tracking-wide">
-            <span>WAYFAIR</span>
-            <span className="opacity-60">ALL MODERN</span>
-            <span className="opacity-60">BIRCH LANE</span>
-            <span className="opacity-60">JOSS & MAIN</span>
+    <div className="flex h-screen flex-col overflow-hidden bg-[var(--wf-cream)]">
+      {/* Brand strip */}
+      <div className="bg-[var(--wf-purple-deep)] text-white">
+        <div className="mx-auto flex max-w-3xl items-center justify-between px-5 py-1.5 text-[10px] font-bold uppercase tracking-[0.18em]">
+          <div className="flex items-center gap-4 whitespace-nowrap">
+            <span>Wayfair</span>
+            <span className="opacity-50">All Modern</span>
+            <span className="opacity-50">Birch Lane</span>
+            <span className="hidden opacity-50 md:inline">Joss & Main</span>
+            <span className="hidden opacity-50 md:inline">Perigold</span>
           </div>
-          <div className="hidden gap-4 sm:flex">
+          <div className="hidden gap-4 whitespace-nowrap sm:flex">
             <span>Rewards</span>
             <span>Financing</span>
-            <span>Fast & Free Shipping</span>
+            <span className="hidden md:inline">Free Shipping over $35</span>
           </div>
         </div>
       </div>
 
-      {/* Header with logo + delivery context */}
-      <header className="border-b border-zinc-200 bg-white">
-        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-4 py-4">
+      {/* Main header */}
+      <header className="border-b border-[var(--wf-line)] bg-white">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-4 px-5 py-4">
           <div className="flex items-center gap-3">
-            <span
-              className="text-2xl font-bold tracking-tight"
-              style={{ color: WF_PURPLE }}
-            >
+            <span className="font-display text-3xl font-bold leading-none tracking-tight text-[var(--wf-purple)]">
               wayfair
             </span>
-            <span className="text-zinc-300">|</span>
-            <div className="text-sm">
-              <div className="font-semibold text-zinc-900">Delivery Updates</div>
-              <div className="text-xs text-zinc-500">
-                Order WF-2407 · Velvet Sectional
+            <span className="h-6 w-px bg-[var(--wf-line)]" />
+            <div>
+              <div className="text-[11px] font-bold uppercase tracking-[0.15em] text-[var(--wf-purple-deep)]">
+                Delivery Updates
+              </div>
+              <div className="text-[12px] text-[var(--wf-ink-soft)]">
+                A note from your delivery coordinator
               </div>
             </div>
           </div>
@@ -150,126 +328,158 @@ export function ChatApp() {
             <button
               type="button"
               onClick={reset}
-              className="text-xs font-medium text-zinc-500 hover:text-zinc-900"
+              className="rounded-full border border-[var(--wf-line)] bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-[var(--wf-ink-soft)] transition hover:text-[var(--wf-purple)]"
             >
-              Reset demo
+              Reset
             </button>
           )}
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-3xl flex-1 flex-col px-4 py-6">
+      <main className="mx-auto flex w-full max-w-3xl min-h-0 flex-1 flex-col gap-4 px-5 pb-5 pt-5">
         {!hasStarted && (
-          <div
-            className="flex flex-1 flex-col items-center justify-center rounded-2xl border p-10 text-center"
-            style={{
-              borderColor: `${WF_PURPLE}33`,
-              backgroundColor: WF_PURPLE_LIGHT,
-            }}
-          >
-            <div
-              className="mb-3 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wider text-white"
-              style={{ backgroundColor: WF_PURPLE }}
-            >
-              Demo
+          <div className="grain relative flex flex-1 flex-col items-center justify-center overflow-hidden rounded-3xl border border-[var(--wf-line)] bg-gradient-to-b from-[var(--wf-purple-soft)] via-white to-[var(--wf-cream)] p-10 text-center shadow-[0_8px_40px_-12px_rgba(127,24,126,0.25)]">
+            <Avatar who="moana" size={92} />
+            <div className="mt-5 inline-flex items-center gap-2 rounded-full bg-[var(--wf-coral)] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.15em] text-white">
+              ◆ Weather Alert
             </div>
-            <h2 className="text-2xl font-semibold text-zinc-900">
-              Severe weather alert just came in
+            <h2 className="font-display mt-4 text-[34px] font-semibold leading-[1.1] tracking-tight text-[var(--wf-ink)]">
+              Severe weather just changed
+              <br />
+              tomorrow&apos;s plan.
             </h2>
-            <p className="mt-2 max-w-md text-sm text-zinc-600">
+            <p className="mt-3 max-w-md text-[15px] leading-relaxed text-[var(--wf-ink-soft)]">
               Andrew has a velvet sectional scheduled for white-glove delivery
-              tomorrow morning. The forecast just turned ugly. Watch Moana, our
-              delivery coordinator, reach out to him.
+              tomorrow morning. Watch Moana, his Wayfinder, reach out and find
+              him a better day.
             </p>
             <button
               type="button"
               onClick={startConversation}
-              className="mt-6 rounded-full px-6 py-3 text-sm font-semibold text-white shadow-sm transition hover:opacity-90"
-              style={{ backgroundColor: WF_PURPLE }}
+              className="mt-7 inline-flex items-center gap-2 rounded-full bg-[var(--wf-purple)] px-7 py-3.5 text-[14px] font-bold text-white shadow-[0_8px_24px_-8px_rgba(127,24,126,0.55)] transition hover:bg-[var(--wf-purple-deep)] active:scale-[0.98]"
             >
-              Run overnight delivery check →
+              Run overnight delivery check
+              <span aria-hidden>→</span>
             </button>
-            <p className="mt-3 text-xs text-zinc-500">
-              You&apos;ll play Andrew. Reply however you want.
+            <p className="mt-3 text-[11px] uppercase tracking-[0.15em] text-[var(--wf-ink-soft)]">
+              You play Andrew · Reply however you like
             </p>
           </div>
         )}
 
         {hasStarted && (
-          <div className="flex-1 space-y-5 overflow-y-auto rounded-2xl border border-zinc-200 bg-zinc-50 p-6">
-            {visibleMessages.map((message) => {
-              const isUser = message.role === "user";
-              const label = isUser ? "Andrew" : "Moana · Wayfair";
-              return (
-                <div
-                  key={message.id}
-                  className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}
-                >
-                  <div
-                    className={`mb-1 px-1 text-[11px] font-medium uppercase tracking-wide ${
-                      isUser ? "text-zinc-500" : ""
-                    }`}
-                    style={!isUser ? { color: WF_PURPLE } : undefined}
-                  >
-                    {label}
-                  </div>
-                  <div
-                    className={`max-w-[80%] rounded-2xl px-4 py-3 shadow-sm ${
-                      isUser ? "text-white" : "border border-zinc-200 bg-white"
-                    }`}
-                    style={isUser ? { backgroundColor: WF_PURPLE } : undefined}
-                  >
-                    {message.parts.map((part, index) => (
-                      <MessagePart
-                        key={`${message.id}-${index}`}
-                        part={part}
-                        role={message.role}
-                      />
-                    ))}
-                  </div>
-                </div>
-              );
-            })}
+          <>
+            <DeliveryStatusCard order={order} />
 
-            {isBusy && (
-              <div className="flex items-center gap-2 text-xs text-zinc-500">
-                <span
-                  className="inline-block h-2 w-2 animate-pulse rounded-full"
-                  style={{ backgroundColor: WF_PURPLE }}
-                />
-                Moana is typing…
+            <div
+              ref={scrollRef}
+              className="scroll-soft grain relative min-h-0 flex-1 overflow-y-auto rounded-3xl border border-[var(--wf-line)] bg-white p-6"
+            >
+              <div className="relative space-y-5">
+                {groups.map((group, groupIdx) => {
+                  const isUser = group.role === "user";
+                  const who = isUser ? "andrew" : "moana";
+                  return (
+                    <div
+                      key={`g-${groupIdx}`}
+                      className={`flex gap-3 ${isUser ? "flex-row-reverse" : "flex-row"}`}
+                    >
+                      <div className="self-end">
+                        <Avatar who={who} size={32} />
+                      </div>
+                      <div
+                        className={`flex max-w-[78%] flex-col gap-1 ${isUser ? "items-end" : "items-start"}`}
+                      >
+                        <div
+                          className={`text-[11px] font-semibold tracking-[0.08em] ${
+                            isUser
+                              ? "text-[var(--wf-ink-soft)]"
+                              : "text-[var(--wf-purple)]"
+                          }`}
+                        >
+                          {isUser ? "Andrew" : "Moana · Wayfinder"}
+                        </div>
+                        {group.messages.map((msg, mi) => (
+                          <div
+                            key={msg.id}
+                            className={`bubble-in space-y-1 rounded-2xl px-4 py-3 ${
+                              isUser
+                                ? "bg-[var(--wf-purple)] text-white shadow-[0_2px_10px_-4px_rgba(127,24,126,0.4)]"
+                                : "border border-[var(--wf-line)] bg-[var(--wf-cream)] shadow-[0_1px_2px_rgba(31,20,34,0.04)]"
+                            } ${
+                              isUser
+                                ? "rounded-br-md"
+                                : "rounded-bl-md"
+                            }`}
+                            style={{ animationDelay: `${mi * 60}ms` }}
+                          >
+                            {msg.parts.map((part, pi) => (
+                              <MessagePart
+                                key={`${msg.id}-${pi}`}
+                                part={part}
+                                isUser={isUser}
+                              />
+                            ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+
+                {isBusy && (
+                  <div className="flex gap-3">
+                    <div className="self-end">
+                      <Avatar who="moana" size={32} />
+                    </div>
+                    <div className="flex flex-col gap-1">
+                      <div className="text-[11px] font-semibold tracking-[0.08em] text-[var(--wf-purple)]">
+                        Moana · Wayfinder
+                      </div>
+                      <div className="inline-flex items-center gap-1.5 rounded-2xl rounded-bl-md border border-[var(--wf-line)] bg-[var(--wf-cream)] px-4 py-3.5">
+                        <span className="typing-dot" />
+                        <span className="typing-dot" />
+                        <span className="typing-dot" />
+                      </div>
+                      {activeTool && (
+                        <div className="ml-1 inline-flex items-center gap-1 text-[11px] italic text-[var(--wf-ink-soft)]">
+                          <span className="text-[var(--wf-purple)]">✦</span>
+                          {activeTool}…
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          </>
         )}
 
         {error && (
-          <p className="mt-3 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+          <p className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error.message}
           </p>
         )}
 
         {hasStarted && (
-          <form onSubmit={handleSubmit} className="mt-4">
-            <div className="flex gap-2">
+          <form onSubmit={handleSubmit} className="relative shrink-0">
+            <div className="flex items-center gap-2 rounded-full border border-[var(--wf-line)] bg-white p-1.5 shadow-[0_4px_24px_-12px_rgba(31,20,34,0.18)]">
+              <div className="pl-1">
+                <Avatar who="andrew" size={32} />
+              </div>
               <input
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 placeholder="Reply as Andrew…"
-                className="flex-1 rounded-full border border-zinc-300 bg-white px-5 py-3 text-sm text-zinc-900 outline-none placeholder:text-zinc-400 focus:border-[color:var(--wf)] focus:ring-2"
-                style={
-                  {
-                    ["--wf" as string]: WF_PURPLE,
-                    ["--tw-ring-color" as string]: `${WF_PURPLE}33`,
-                  } as React.CSSProperties
-                }
+                className="flex-1 bg-transparent px-2 py-2 text-[15px] text-[var(--wf-ink)] outline-none placeholder:text-[var(--wf-ink-soft)]"
                 disabled={isBusy}
+                autoFocus
               />
               {isBusy ? (
                 <button
                   type="button"
                   onClick={() => stop()}
-                  className="rounded-full border border-zinc-300 bg-white px-5 py-3 text-sm font-medium text-zinc-700 hover:border-zinc-400"
+                  className="rounded-full border border-[var(--wf-line)] bg-white px-4 py-2 text-[12px] font-bold uppercase tracking-wider text-[var(--wf-ink-soft)] hover:text-[var(--wf-purple)]"
                 >
                   Stop
                 </button>
@@ -277,10 +487,18 @@ export function ChatApp() {
                 <button
                   type="submit"
                   disabled={!input.trim()}
-                  className="rounded-full px-6 py-3 text-sm font-semibold text-white transition hover:opacity-90 disabled:opacity-40"
-                  style={{ backgroundColor: WF_PURPLE }}
+                  aria-label="Send"
+                  className="flex h-10 w-10 items-center justify-center rounded-full bg-[var(--wf-purple)] text-white transition hover:bg-[var(--wf-purple-deep)] disabled:opacity-30"
                 >
-                  Send
+                  <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden>
+                    <path
+                      d="M4 12L20 4l-5 16-3-7-8-1z"
+                      fill="currentColor"
+                      stroke="currentColor"
+                      strokeLinejoin="round"
+                      strokeWidth="1.5"
+                    />
+                  </svg>
                 </button>
               )}
             </div>

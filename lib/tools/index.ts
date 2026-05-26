@@ -25,7 +25,7 @@ const ANDREWS_ORDER: Order = {
   customerName: "Andrew",
   customerPhone: "(617) 555-0142",
   address: "42 Beacon St, Boston, MA 02108",
-  item: "Birch Lane Heritage Velvet Sectional Sofa (Dusty Rose)",
+  item: "Birch Lane Heritage Velvet Sectional Sofa (Forest Green)",
   sku: "WF-1003",
   deliveryType: "white-glove",
   scheduledDate: "Wednesday, May 27, 2026",
@@ -100,24 +100,55 @@ export const checkWeatherForDelivery = tool({
 
 export const findClearDeliverySlots = tool({
   description:
-    "Find alternate delivery slots where the weather forecast is clear. Returns up to `count` slots. Pass `excluding` with the date+window strings of slots you've already offered to fetch fresh options the customer hasn't seen.",
+    "Find alternate delivery slots where the weather forecast is clear. Returns up to `count` slots. " +
+    "If the customer mentioned a specific day or kind of day ('Monday', 'this weekend', 'next week'), " +
+    "pass it as `preferredDays` so the tool filters by weekday. " +
+    "Otherwise, pass `excluding` to skip slots you've already shown them.",
   inputSchema: z.object({
     count: z.number().min(1).max(5).default(3).describe("How many slots to return"),
+    preferredDays: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "Day names the customer asked for, e.g. ['Monday'] or ['Saturday','Sunday'] for 'weekend'. Filters the pool to matching weekdays only. Case-insensitive.",
+      ),
     excluding: z
       .array(z.string())
       .optional()
       .describe(
-        "Array of slot identifiers (formatted '<date> @ <window>') the customer has already seen and doesn't want. Used to fetch a fresh batch.",
+        "Array of slot identifiers (formatted '<date> @ <window>') the customer has already seen. Used to fetch a fresh batch when they want different options without a specific day preference.",
       ),
   }),
-  execute: async ({ count, excluding }) => {
+  execute: async ({ count, preferredDays, excluding }) => {
+    console.log("[findClearDeliverySlots] args:", { count, preferredDays, excluding });
     const seen = new Set(excluding ?? []);
-    const fresh = ALTERNATE_SLOTS.filter(
+    const dayFilters = (preferredDays ?? []).map((d) => d.toLowerCase().trim());
+
+    let pool = ALTERNATE_SLOTS.filter(
       (s) => !seen.has(`${s.date} @ ${s.window}`),
-    ).slice(0, count);
+    );
+    if (dayFilters.length > 0) {
+      pool = pool.filter((s) =>
+        dayFilters.some((d) => s.date.toLowerCase().includes(d)),
+      );
+    }
+    const fresh = pool.slice(0, count);
+
+    // Always include the full list of days that have open slots — even when
+    // filtering — so the agent can self-correct if it filtered for the wrong day.
+    const allAvailableDays = Array.from(
+      new Set(ALTERNATE_SLOTS.map((s) => s.date)),
+    );
+
     return {
       slots: fresh,
-      remainingInPool: ALTERNATE_SLOTS.length - seen.size - fresh.length,
+      remainingInPool: pool.length - fresh.length,
+      filterApplied: dayFilters.length > 0 ? dayFilters : null,
+      allAvailableDays,
+      note:
+        dayFilters.length > 0 && fresh.length === 0
+          ? `No clear-weather slots available matching ${dayFilters.join("/")}. Available days in the pool are: ${allAvailableDays.join("; ")}. Tell the customer honestly and offer the nearest matching day.`
+          : undefined,
     };
   },
 });
