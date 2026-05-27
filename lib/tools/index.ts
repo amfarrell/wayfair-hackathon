@@ -24,7 +24,7 @@ const ANDREWS_ORDER: Order = {
   orderId: "WF-2407",
   customerName: "Andrew",
   customerPhone: "(617) 555-0142",
-  address: "42 Beacon St, Boston, MA 02108",
+  address: "1 Motunui Way, Boston, MA 02108",
   item: "Birch Lane Heritage Velvet Sectional Sofa (Forest Green)",
   sku: "WF-1003",
   deliveryType: "white-glove",

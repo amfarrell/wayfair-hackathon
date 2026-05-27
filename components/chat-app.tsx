@@ -202,7 +202,7 @@ function DeliveryStatusCard({ order }: { order: OrderSnapshot }) {
               {order.item}
             </div>
             <div className="mt-0.5 text-[12px] text-[var(--wf-ink-soft)]">
-              42 Beacon St, Boston, MA
+              1 Motunui Way, Boston, MA
             </div>
           </div>
         </div>
